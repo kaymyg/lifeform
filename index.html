@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lifeform</title>
+<style>
+:root {
+  --bg: #06090c;
+  --panel: #0d1319;
+  --line: #1b2731;
+  --dim: #526a7a;
+  --txt: #a9c4d2;
+  --hot: #4cf0c0;
+  --warm: #ffcf5c;
+  --red: #ff6b6b;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--txt);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 18px; display: flex; justify-content: center;
+}
+#app { width: 100%; max-width: 1120px; }
+h1 { font-size: 15px; margin: 0 0 2px; letter-spacing: 3px; color: var(--hot); font-weight: 600; }
+.sub { color: var(--dim); font-size: 11px; margin-bottom: 14px; letter-spacing: 1px; }
+.frame {
+  border: 1px solid var(--line); background: var(--panel);
+  border-radius: 6px; padding: 12px; margin-bottom: 12px;
+}
+canvas { width: 100%; height: auto; display: block; image-rendering: pixelated; cursor: crosshair; border-radius: 3px; }
+.stats { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-bottom: 12px; }
+.stat .k { color: var(--dim); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; }
+.stat .v { color: var(--txt); font-size: 15px; }
+.stat .v.hot { color: var(--hot); }
+.stat .v.warm { color: var(--warm); }
+button {
+  font: inherit; background: #12202a; color: var(--txt);
+  border: 1px solid var(--line); border-radius: 4px;
+  padding: 7px 13px; cursor: pointer;
+}
+button:hover { border-color: var(--hot); color: var(--hot); }
+button.primary { background: #10382f; border-color: var(--hot); color: var(--hot); font-weight: 600; }
+button.primary:hover { background: var(--hot); color: #05201a; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.spacer { flex: 1 1 auto; }
+label.slide { display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 11px; }
+input[type=range] { width: 130px; accent-color: #4cf0c0; }
+#status { margin-top: 10px; color: var(--dim); font-size: 11px; min-height: 17px; }
+#status b { color: var(--warm); font-weight: 600; }
+.lineage { max-height: 132px; overflow: auto; font-size: 11px; color: var(--dim); }
+.lineage div { padding: 1px 0; border-bottom: 1px dotted #131d25; }
+.lineage span.id { color: var(--hot); }
+.tag { color: var(--dim); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 7px; }
+.dead { color: var(--red); }
+.cols { display: flex; gap: 12px; flex-wrap: wrap; }
+.cols .frame { flex: 1 1 300px; margin-bottom: 0; }
+.note { color: var(--dim); font-size: 11px; margin-top: 14px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>LIFEFORM</h1>
+  <div class="sub">a self-replicating html organism · genome stored in its own source</div>
+
+  <div class="frame">
+    <div class="stats" id="stats"></div>
+    <canvas id="c" width="768" height="512"></canvas>
+    <div id="status"></div>
+  </div>
+
+  <div class="frame">
+    <div class="row">
+      <button class="primary" id="spawn">Spawn offspring</button>
+      <button id="reroll">Re-roll mutations</button>
+      <button id="mutrule">Mutate rule</button>
+      <button id="play">Preview forward</button>
+      <button id="adopt">Adopt preview</button>
+      <button id="reseed">Reseed soup</button>
+      <div class="spacer"></div>
+      <label class="slide">mutation rate
+        <input type="range" id="mut" min="0" max="200" value="0">
+        <span id="mutv">0.000</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="frame">
+      <div class="tag">Ancestry</div>
+      <div class="lineage" id="lineage"></div>
+    </div>
+    <div class="frame">
+      <div class="tag">How it works</div>
+      <div style="font-size:11px;color:#526a7a;line-height:1.8">
+        On open, this file decodes its own DNA string, advances one generation,
+        applies mutations, then rewrites its own source with the new genome and
+        offers it as a download. The child is a complete organism. Open it and
+        the cycle repeats. Click the grid to edit cells before spawning.
+      </div>
+    </div>
+  </div>
+
+  <div class="note" id="note"></div>
+</div>
+<script>
+const DNA = "";
+const SELF_SRC = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+
+/* ---------------- codec ---------------- */
+function b64enc(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+  return btoa(s);
+}
+function b64dec(str) {
+  const s = atob(str), a = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
+  return a;
+}
+function packBits(cells) {
+  const out = new Uint8Array((cells.length + 7) >> 3);
+  for (let i = 0; i < cells.length; i++) if (cells[i]) out[i >> 3] |= 1 << (i & 7);
+  return out;
+}
+function unpackBits(bytes, n) {
+  const c = new Uint8Array(n);
+  for (let i = 0; i < n; i++) c[i] = (bytes[i >> 3] >> (i & 7)) & 1;
+  return c;
+}
+function rle(bytes) {
+  const out = [];
+  let i = 0;
+  while (i < bytes.length) {
+    const v = bytes[i];
+    let n = 1;
+    while (i + n < bytes.length && bytes[i + n] === v && n < 255) n++;
+    out.push(v, n); i += n;
+  }
+  return new Uint8Array(out);
+}
+function unrle(bytes) {
+  const out = [];
+  for (let i = 0; i + 1 < bytes.length; i += 2) for (let k = 0; k < bytes[i + 1]; k++) out.push(bytes[i]);
+  return new Uint8Array(out);
+}
+function encodeGenome(g) {
+  const bits = b64enc(rle(packBits(g.cells)));
+  const lin = g.lineage.map(e => e.gen + ":" + e.pop + ":" + e.id).join(",");
+  return ["3", g.gen, g.w, g.h, g.rule, g.mut.toFixed(5), g.id, g.parent || "-", lin].join(";") + "~" + bits;
+}
+function decodeGenome(s) {
+  const cut = s.indexOf("~");
+  const p = s.slice(0, cut).split(";");
+  const w = +p[2], h = +p[3];
+  const cells = unpackBits(unrle(b64dec(s.slice(cut + 1))), w * h);
+  return {
+    gen: +p[1], w: w, h: h, rule: p[4], mut: +p[5], id: p[6],
+    parent: p[7] === "-" ? null : p[7],
+    lineage: (p[8] || "").split(",").filter(Boolean).map(e => {
+      const q = e.split(":");
+      return { gen: +q[0], pop: +q[1], id: q[2] };
+    }),
+    cells: cells
+  };
+}
+
+/* ---------------- life ---------------- */
+function parseRule(r) {
+  const m = /^B([0-8]*)\/S([0-8]*)$/i.exec(r) || [null, "3", "23"];
+  return { b: new Set((m[1] || "").split("").map(Number)), s: new Set((m[2] || "").split("").map(Number)) };
+}
+function step(cells, w, h, rule) {
+  const R = parseRule(rule), out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const yu = ((y - 1 + h) % h) * w, yd = ((y + 1) % h) * w, yc = y * w;
+    for (let x = 0; x < w; x++) {
+      const xl = (x - 1 + w) % w, xr = (x + 1) % w;
+      const n = cells[yu + xl] + cells[yu + x] + cells[yu + xr]
+              + cells[yc + xl] + cells[yc + xr]
+              + cells[yd + xl] + cells[yd + x] + cells[yd + xr];
+      out[yc + x] = cells[yc + x] ? (R.s.has(n) ? 1 : 0) : (R.b.has(n) ? 1 : 0);
+    }
+  }
+  return out;
+}
+function pop(cells) { let n = 0; for (let i = 0; i < cells.length; i++) n += cells[i]; return n; }
+function hashId(cells, gen) {
+  let h = 0x811c9dc5 ^ gen;
+  for (let i = 0; i < cells.length; i++) { h ^= cells[i] * (i & 255); h = Math.imul(h, 0x01000193); }
+  return ((h >>> 0).toString(16) + "000000").slice(0, 6);
+}
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function mutateRule(rule, rnd) {
+  const R = parseRule(rule);
+  const set = rnd() < 0.5 ? R.b : R.s;
+  const d = Math.floor(rnd() * 9);
+  if (set.has(d)) set.delete(d); else set.add(d);
+  if (R.b.size === 0) R.b.add(3);
+  if (R.s.size === 0) R.s.add(2);
+  const f = s => Array.from(s).sort((a, b) => a - b).join("");
+  return "B" + f(R.b) + "/S" + f(R.s);
+}
+
+/* ---------------- genesis ---------------- */
+const GUN = [[0,4],[0,5],[1,4],[1,5],[10,4],[10,5],[10,6],[11,3],[11,7],[12,2],[12,8],[13,2],[13,8],[14,5],[15,3],[15,7],[16,4],[16,5],[16,6],[17,5],[20,2],[20,3],[20,4],[21,2],[21,3],[21,4],[22,1],[22,5],[24,0],[24,1],[24,5],[24,6],[34,2],[34,3],[35,2],[35,3]];
+function genesis() {
+  const w = 96, h = 64, cells = new Uint8Array(w * h), rnd = mulberry32(0x5eed1e);
+  for (const g of GUN) cells[(g[1] + 3) * w + (g[0] + 4)] = 1;
+  for (let y = 34; y < h - 2; y++) for (let x = 2; x < w - 2; x++) if (rnd() < 0.24) cells[y * w + x] = 1;
+  const id = hashId(cells, 0);
+  return { gen: 0, w: w, h: h, rule: "B3/S23", mut: 0, id: id, parent: null, lineage: [], cells: cells };
+}
+
+/* ---------------- state ---------------- */
+let parent, child, preview = null, playing = null, countdown = null;
+try { parent = DNA ? decodeGenome(DNA) : genesis(); } catch (e) { parent = genesis(); }
+/* the physics currently in force; inherited from the parent, mutable at runtime */
+let ruleNow = parent.rule;
+
+const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+const CS = 8;
+cv.width = parent.w * CS; cv.height = parent.h * CS;
+
+function draw(cells, prev) {
+  ctx.fillStyle = "#06090c";
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  const w = parent.w, h = parent.h;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, a = cells[i], b = prev ? prev[i] : a;
+    if (!a && !b) continue;
+    if (a && !b) ctx.fillStyle = "#7dffe0";
+    else if (a) ctx.fillStyle = "#22a98c";
+    else ctx.fillStyle = "#2a1620";
+    ctx.fillRect(x * CS, y * CS, CS - 1, CS - 1);
+  }
+}
+
+function makeChild(seedOffset) {
+  const rnd = mulberry32((parseInt(parent.id, 16) || 1) + parent.gen * 7919 + (seedOffset || 0));
+  const rule = ruleNow;
+  const cells = step(parent.cells, parent.w, parent.h, rule);
+  const rate = parent.mut;
+  let flips = 0;
+  if (rate > 0) for (let i = 0; i < cells.length; i++) if (rnd() < rate) { cells[i] ^= 1; flips++; }
+  const lineage = parent.lineage.concat([{ gen: parent.gen, pop: pop(parent.cells), id: parent.id }]).slice(-32);
+  return {
+    gen: parent.gen + 1, w: parent.w, h: parent.h, rule: rule, mut: rate,
+    id: hashId(cells, parent.gen + 1), parent: parent.id, lineage: lineage,
+    cells: cells, flips: flips
+  };
+}
+
+function renderStats() {
+  const d = pop(child.cells) - pop(parent.cells);
+  const rows = [
+    ["generation", child.gen, "hot"],
+    ["organism", child.id, "hot"],
+    ["parent", child.parent || "genesis", ""],
+    ["rule", child.rule, "warm"],
+    ["population", pop(child.cells) + (d >= 0 ? " (+" + d + ")" : " (" + d + ")"), ""],
+    ["mutations", child.flips || 0, child.flips ? "warm" : ""],
+    ["ancestors", child.lineage.length, ""]
+  ];
+  document.getElementById("stats").innerHTML = rows.map(r =>
+    '<div class="stat"><div class="k">' + r[0] + '</div><div class="v ' + r[2] + '">' + r[1] + '</div></div>'
+  ).join("");
+
+  const L = child.lineage.slice().reverse();
+  document.getElementById("lineage").innerHTML = L.length
+    ? L.map(e => '<div>gen ' + String(e.gen).padStart(5, "0") + ' · <span class="id">' + e.id + '</span> · pop ' + e.pop + '</div>').join("")
+    : '<div>no ancestors · this is the first of its kind</div>';
+
+  const note = document.getElementById("note");
+  if (pop(child.cells) === 0) {
+    note.innerHTML = '<span class="dead">LINEAGE EXTINCT.</span> The grid is empty; any offspring will also be empty. Reseed the soup to restart from this genome, or let it die.';
+  } else {
+    note.textContent = "Offspring file: lifeform-g" + child.gen + "-" + child.id + ".html";
+  }
+}
+
+function setStatus(html) { document.getElementById("status").innerHTML = html; }
+
+/* ---------------- reproduction ---------------- */
+/* The genome locus is the DNA declaration on line 1 of this script. It must
+   appear EXACTLY once in the file, so the code below never spells that literal
+   out -- the key is assembled at runtime to keep this function from matching
+   itself and creating a second, false locus. */
+const LOCUS = /const DNA = "[^"]*";/;
+const KEY = "const" + " DNA";
+function buildOffspringSource() {
+  const dna = encodeGenome(child);
+  const hits = SELF_SRC.match(new RegExp(LOCUS.source, "g")) || [];
+  if (hits.length !== 1) throw new Error("expected 1 genome locus, found " + hits.length);
+  return SELF_SRC.replace(LOCUS, function () { return KEY + " = " + JSON.stringify(dna) + ";"; });
+}
+function spawn() {
+  stopCountdown();
+  try {
+    const src = buildOffspringSource();
+    const url = URL.createObjectURL(new Blob([src], { type: "text/html" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "lifeform-g" + child.gen + "-" + child.id + ".html";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    setStatus("Offspring <b>" + child.id + "</b> released · " + (src.length / 1024).toFixed(1) + " KB · open it to continue the lineage.");
+  } catch (e) {
+    setStatus('<span style="color:#ff6b6b">Reproduction failed: ' + e.message + "</span>");
+  }
+}
+function stopCountdown() { if (countdown) { clearInterval(countdown); countdown = null; } }
+function startCountdown() {
+  let t = 3;
+  setStatus("Reproducing in <b>" + t + "</b>... (click anything to cancel)");
+  countdown = setInterval(function () {
+    t--;
+    if (t <= 0) { spawn(); return; }
+    setStatus("Reproducing in <b>" + t + "</b>... (click anything to cancel)");
+  }, 1000);
+}
+
+/* ---------------- boot sequence ---------------- */
+draw(parent.cells, null);
+setStatus("Decoded genome <b>" + parent.id + "</b> at generation " + parent.gen + " · advancing...");
+child = makeChild(0);
+document.getElementById("mut").value = Math.round(parent.mut * 20000);
+document.getElementById("mutv").textContent = parent.mut.toFixed(5);
+renderStats();
+
+setTimeout(function () {
+  draw(child.cells, parent.cells);
+  startCountdown();
+}, 900);
+
+/* ---------------- controls ---------------- */
+function refresh() {
+  preview = null;
+  draw(child.cells, parent.cells);
+  renderStats();
+}
+document.getElementById("spawn").onclick = spawn;
+document.getElementById("reroll").onclick = function () {
+  stopCountdown();
+  const f = Math.floor(Math.random() * 1e6);
+  child = makeChild(f);
+  refresh();
+  setStatus("Re-rolled mutations · <b>" + child.flips + "</b> cells flipped.");
+};
+document.getElementById("mutrule").onclick = function () {
+  stopCountdown();
+  const was = ruleNow;
+  ruleNow = mutateRule(ruleNow, Math.random);
+  child = makeChild(Math.floor(Math.random() * 1e6));
+  refresh();
+  setStatus("Physics mutated · <b>" + was + "</b> becomes <b>" + ruleNow + "</b> · this generation was recomputed under the new rule and offspring inherit it.");
+};
+document.getElementById("mut").oninput = function () {
+  stopCountdown();
+  const r = this.value / 20000;
+  document.getElementById("mutv").textContent = r.toFixed(5);
+  parent.mut = r;
+  child = makeChild(Math.floor(Math.random() * 1e6));
+  refresh();
+  setStatus("Mutation rate <b>" + r.toFixed(5) + "</b> · " + child.flips + " cells flipped this generation.");
+};
+document.getElementById("play").onclick = function () {
+  stopCountdown();
+  if (playing) {
+    clearInterval(playing); playing = null; this.textContent = "Preview forward";
+    setStatus("Preview paused at +" + preview.n + " generations. Adopt it to make it the offspring state.");
+    return;
+  }
+  if (!preview) preview = { cells: child.cells.slice(), n: 0 };
+  this.textContent = "Pause preview";
+  const btn = this;
+  playing = setInterval(function () {
+    const nxt = step(preview.cells, child.w, child.h, child.rule);
+    draw(nxt, preview.cells);
+    preview.cells = nxt; preview.n++;
+    setStatus("Preview <b>+" + preview.n + "</b> generations (not yet inherited) · pop " + pop(nxt));
+    if (preview.n > 4000) { clearInterval(playing); playing = null; btn.textContent = "Preview forward"; }
+  }, 70);
+};
+document.getElementById("adopt").onclick = function () {
+  stopCountdown();
+  if (!preview) { setStatus("Nothing to adopt · run a preview first."); return; }
+  if (playing) { clearInterval(playing); playing = null; document.getElementById("play").textContent = "Preview forward"; }
+  const jumped = preview.n;
+  child.cells = preview.cells.slice();
+  child.gen = child.gen + jumped;
+  child.id = hashId(child.cells, child.gen);
+  refresh();
+  setStatus("Adopted · offspring jumps <b>+" + jumped + "</b> generations to gen " + child.gen + ".");
+};
+document.getElementById("reseed").onclick = function () {
+  stopCountdown();
+  const rnd = mulberry32(Math.floor(Math.random() * 1e9));
+  for (let i = 0; i < child.cells.length; i++) child.cells[i] = rnd() < 0.28 ? 1 : 0;
+  child.id = hashId(child.cells, child.gen);
+  refresh();
+  setStatus("Soup reseeded · the lineage continues from fresh randomness.");
+};
+cv.onclick = function (ev) {
+  stopCountdown();
+  const r = cv.getBoundingClientRect();
+  const x = Math.floor((ev.clientX - r.left) / r.width * child.w);
+  const y = Math.floor((ev.clientY - r.top) / r.height * child.h);
+  if (x < 0 || y < 0 || x >= child.w || y >= child.h) return;
+  child.cells[y * child.w + x] ^= 1;
+  child.id = hashId(child.cells, child.gen);
+  preview = null;
+  draw(child.cells, parent.cells);
+  renderStats();
+  setStatus("Edited cell " + x + "," + y + " · hand-modified genome, id now <b>" + child.id + "</b>.");
+};
+window.addEventListener("keydown", stopCountdown);
+</script>
+
+
+</body></html>

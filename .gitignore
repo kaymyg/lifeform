@@ -1,0 +1,8 @@
+# Offspring. Every open of index.html produces one of these.
+# They are organisms, not build artifacts -- keep the ones you like,
+# but do not commit an entire lineage by accident.
+lifeform-g*.html
+
+node_modules/
+.DS_Store
+Thumbs.db
