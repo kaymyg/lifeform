@@ -4,7 +4,7 @@ A single HTML file that runs Conway's Game of Life, stores the entire grid insid
 
 Open it. It decodes its genome, advances one generation, and hands you a file. That file is the offspring. Open the offspring and it does the same. The file is not running the simulation — the file **is** the simulation, and the save-and-open cycle is its metabolism.
 
-**[Live demo](https://USERNAME.github.io/lifeform/)** — every visitor starts from the same genesis ancestor.
+**[Live demo](https://kaymyg.github.io/lifeform/)** — every visitor starts from the same genesis ancestor.
 
 No dependencies, no build step, no network. 17 KB.
 
