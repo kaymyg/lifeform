@@ -1,0 +1,14 @@
+# Weekly grouped dependency updates. The 7 day cooldown means a brand new
+# release is only proposed once it has been public for a week, which gives
+# time for a compromised release to be caught and pulled.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      github_actions:
+        patterns: ["*"]
